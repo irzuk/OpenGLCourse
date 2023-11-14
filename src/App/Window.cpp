@@ -8,10 +8,13 @@
 #include <QScreen>
 
 #include <array>
+#include <iostream>
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define JSON_NOEXCEPTION
+#define TINYGLTF_NOEXCEPTION
 
 #include <tinygltf/tiny_gltf.h>
 
@@ -60,6 +63,17 @@ Window::~Window()
 
 void Window::onInit()
 {
+    tinygltf::TinyGLTF loader; // Объект загрузчика
+    tinygltf::Model in_model; // Модель в формате загрузчика
+    std::string err; // Строка под ошибки
+    std::string warn; // Строка под предупреждения
+    std::string filename = "/Users/irzuk/Documents/Studying/ComputerGraphics/OpenGLCourse/src/App/Models/chess.glb";
+	bool success = loader.LoadASCIIFromFile(&in_model, &err, &warn, filename); // Загрузка из файла
+	// Если есть ошибки или предупреждения - выдадим исключение
+    if (!err.empty() || !warn.empty()) 
+        std::cout << err + '\n' + warn;
+    std::cout << success << std::endl;
+
 	// Configure shaders
 	program_ = std::make_unique<QOpenGLShaderProgram>(this);
 	program_->addShaderFromSourceFile(QOpenGLShader::Vertex, ":/Shaders/diffuse.vs");
