@@ -1,14 +1,16 @@
 #version 330 core
+in vec3 normal;
+in vec3 position;
+in vec2 texcoord;
 
-uniform sampler2D tex_2d;
+uniform sampler2D tex;
+// uniform vec3 sun_position;
+// uniform vec3 sun_color;
 
-in vec3 vert_col;
-in vec2 vert_tex;
-
-out vec4 out_col;
-
+out vec4 color;
 void main() {
-	vec4 texel = texture(tex_2d, vert_tex);
-	float greyscale_factor = dot(texel.rgb, vec3(0.21, 0.71, 0.07));
-	out_col = vec4(mix(vec3(greyscale_factor), vert_col.rgb, 0.7), 1.0f);
+	// float lum = max(dot(normal, normalize(sun_position)), 0.0);
+	color = texture(tex, texcoord);
+	//texture(tex, texcoord); //vec4((position + vec3(1.0)) / 2.0, 1.0); // * vec4((0.3 + 0.7 * lum) * sun_color, 1.0);
+	
 }

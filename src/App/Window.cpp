@@ -9,6 +9,7 @@
 
 #include <array>
 #include <iostream>
+#include <filesystem>
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -16,19 +17,174 @@
 #define JSON_NOEXCEPTION
 #define TINYGLTF_NOEXCEPTION
 
-#include <tinygltf/tiny_gltf.h>
 
-namespace
-{
+void Window::setAllBuffers() {
+  vbos.reserve(model.bufferViews.size());
+  ebos.reserve(model.bufferViews.size());
 
-constexpr std::array<GLfloat, 21u> vertices = {
-	0.0f, 0.707f, 1.f, 0.f, 0.f, 0.0f, 0.0f,
-	-0.5f, -0.5f, 0.f, 1.f, 0.f, 0.5f, 1.0f,
-	0.5f, -0.5f, 0.f, 0.f, 1.f, 1.0f, 0.0f,
-};
-constexpr std::array<GLuint, 3u> indices = {0, 1, 2};
+  for (size_t i = 0; i < model.bufferViews.size(); ++i) {
+    const tinygltf::BufferView &bufferView = model.bufferViews[i];
+    std::cout << i << " " << bufferView.target<< std::endl;
+    if (bufferView.target == 0) {  // TODO impl drawarrays
+      
+      buffer_to_vbo[i] = vbos.size();
+      vbos.emplace_back(model.buffers[bufferView.buffer], bufferView);
+      continue;
+    }
 
-}// namespace
+    std::cout << "--> load buffer: " << i << std::endl;
+    if (bufferView.target == 34962) { // ARRAY_BUFFER
+      buffer_to_vbo[i] = vbos.size();
+      vbos.emplace_back(model.buffers[bufferView.buffer], bufferView);
+      continue;
+    }
+
+    if (bufferView.target == 34963) { // ELEMENT_ARRAY_BUFFER
+      buffer_to_ebo[i] = ebos.size();
+      ebos.emplace_back(model.buffers[bufferView.buffer], bufferView);
+      continue;
+    }
+    assert(false && "unreachable");
+  }
+}
+
+void Window::bindMesh(tinygltf::Mesh &mesh) {
+  for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+    todraw.emplace_back();
+    todraw.back().vao->bind();
+
+    tinygltf::Primitive primitive = mesh.primitives[i];
+    tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
+
+    if (indexAccessor.bufferView >= 0) {
+        assert(buffer_to_ebo.find(indexAccessor.bufferView) != buffer_to_ebo.end()); 
+        ebos[buffer_to_ebo[indexAccessor.bufferView]].bind();
+        todraw.back().ebo = true;
+    }
+    std::cout << "--> bind ebo: " << indexAccessor.bufferView << std::endl;
+
+    for (auto &attrib : primitive.attributes) {
+
+      tinygltf::Accessor accessor = model.accessors[attrib.second];
+      int byteStride =
+          accessor.ByteStride(model.bufferViews[accessor.bufferView]);
+     
+      std::cout << "assert:  " <<  accessor.bufferView<< std::endl;
+
+      std::cout << "--> bind vbo: " << accessor.bufferView << std::endl;
+
+      int size = 1;
+      if (accessor.type != TINYGLTF_TYPE_SCALAR) {
+        size = accessor.type;
+      }
+
+      int vaa = -1;
+      if (attrib.first.compare("POSITION") == 0) vaa = 0;
+      if (attrib.first.compare("NORMAL") == 0) vaa = 1;
+      if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
+      if (vaa > -1) {
+        std::cout << "--> enableAttributeArray: " << vaa << std::endl;
+
+        assert(buffer_to_vbo.find(accessor.bufferView) != buffer_to_vbo.end()); 
+        vbos[buffer_to_vbo[accessor.bufferView]].bind();
+
+        program_->enableAttributeArray(vaa);
+	      program_->setAttributeBuffer(vaa, accessor.componentType, accessor.byteOffset, size, byteStride);
+
+      } else
+        std::cout << "vaa missing: " << attrib.first << std::endl;
+    }
+
+    if (model.textures.size() > 0) {
+      // fixme: Use material's baseColor
+      tinygltf::Texture &tex = model.textures[0];
+
+      if (tex.source > -1) {
+        tinygltf::Image &image = model.images[tex.source];
+
+        GLenum format = GL_RGBA;
+
+        if (image.component == 1) {
+          format = GL_RED;
+        } else if (image.component == 2) {
+          format = GL_RG;
+        } else if (image.component == 3) {
+          format = GL_RGB;
+        } else {
+          // ???
+        }
+
+        GLenum type = GL_UNSIGNED_BYTE;
+        if (image.bits == 8) {
+          // ok
+        } else if (image.bits == 16) {
+          type = GL_UNSIGNED_SHORT;
+        } else {
+          // ???
+        }
+        
+        QImage im(image.image.data(), image.width, image.height, QImage::Format::Format_RGB32);
+        todraw.back().texture = std::make_unique<QOpenGLTexture>(std::move(im));
+        // todraw[ind].texture = ;
+        todraw.back().texture->setMinMagFilters(QOpenGLTexture::Linear, QOpenGLTexture::Linear);
+        todraw.back().texture->setWrapMode(QOpenGLTexture::WrapMode::Repeat);
+
+        // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
+        //              format, type, &image.image.at(0));
+      }
+    }
+    todraw.back().indexAccessorCount = indexAccessor.count;
+    todraw.back().indexAccessorComponentType = indexAccessor.componentType;
+    todraw.back().indexAccessorByteOffset = indexAccessor.byteOffset;
+    todraw.back().primitiveMode = primitive.mode;
+    todraw.back().vao->release();
+  }
+
+}
+
+// bind models
+void Window::bindModelNodes(tinygltf::Node &node) {
+  if ((node.mesh >= 0) && (node.mesh < model.meshes.size())) {
+    std::cout << "--> build node: " << node.mesh << std::endl;
+    bindMesh(model.meshes[node.mesh]);
+  }
+
+  for (size_t i = 0; i < node.children.size(); i++) {
+    assert((node.children[i] >= 0) && (node.children[i] < model.nodes.size()));
+    bindModelNodes(model.nodes[node.children[i]]);
+  }
+}
+
+void Window::bindModel() {
+  const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+  for (size_t i = 0; i < scene.nodes.size(); ++i) {
+    assert((scene.nodes[i] >= 0) && (scene.nodes[i] < model.nodes.size()));
+    bindModelNodes(model.nodes[scene.nodes[i]]); // mesh -> primitives: indexBuf, attrBuf1, attrBuf2, ... + text1(material) 
+  }
+}
+
+
+bool Window::loadModel(const char *filename) {
+  tinygltf::TinyGLTF loader;
+  std::string err;
+  std::string warn;
+
+  bool res = loader.LoadBinaryFromFile(&model, &err, &warn, filename);
+  if (!warn.empty()) {
+    std::cout << "WARN: " << warn << std::endl;
+  }
+
+  if (!err.empty()) {
+    std::cout << "ERR: " << err << std::endl;
+  }
+
+  if (!res)
+    std::cout << "Failed to load glTF: " << filename << std::endl;
+  else
+    std::cout << "Loaded glTF: " << filename << std::endl;
+
+  return res;
+}
 
 Window::Window() noexcept
 {
@@ -56,24 +212,15 @@ Window::~Window()
 	{
 		// Free resources with context bounded.
 		const auto guard = bindContext();
-		texture_.reset();
 		program_.reset();
 	}
 }
 
 void Window::onInit()
 {
-    tinygltf::TinyGLTF loader; // Объект загрузчика
-    tinygltf::Model in_model; // Модель в формате загрузчика
-    std::string err; // Строка под ошибки
-    std::string warn; // Строка под предупреждения
-    std::string filename = "/Users/irzuk/Documents/Studying/ComputerGraphics/OpenGLCourse/src/App/Models/chess.glb";
-	bool success = loader.LoadASCIIFromFile(&in_model, &err, &warn, filename); // Загрузка из файла
-	// Если есть ошибки или предупреждения - выдадим исключение
-    if (!err.empty() || !warn.empty()) 
-        std::cout << err + '\n' + warn;
-    std::cout << success << std::endl;
-
+  const std::filesystem::path path = std::filesystem::absolute("../src/App/Models/chess2.glb").lexically_normal();
+	if (!loadModel(path.string().c_str())) return;
+   
 	// Configure shaders
 	program_ = std::make_unique<QOpenGLShaderProgram>(this);
 	program_->addShaderFromSourceFile(QOpenGLShader::Vertex, ":/Shaders/diffuse.vs");
@@ -81,53 +228,22 @@ void Window::onInit()
 									  ":/Shaders/diffuse.fs");
 	program_->link();
 
-	// Create VAO object
-	vao_.create();
-	vao_.bind();
+	// vao_.create();
+	// vao_.bind();
 
-	// Create VBO
-	vbo_.create();
-	vbo_.bind();
-	vbo_.setUsagePattern(QOpenGLBuffer::StaticDraw);
-	vbo_.allocate(vertices.data(), static_cast<int>(vertices.size() * sizeof(GLfloat)));
-
-	// Create IBO
-	ibo_.create();
-	ibo_.bind();
-	ibo_.setUsagePattern(QOpenGLBuffer::StaticDraw);
-	ibo_.allocate(indices.data(), static_cast<int>(indices.size() * sizeof(GLuint)));
-
-	texture_ = std::make_unique<QOpenGLTexture>(QImage(":/Textures/voronoi.png"));
-	texture_->setMinMagFilters(QOpenGLTexture::Linear, QOpenGLTexture::Linear);
-	texture_->setWrapMode(QOpenGLTexture::WrapMode::Repeat);
-
-	// Bind attributes
-	program_->bind();
-
-	program_->enableAttributeArray(0);
-	program_->setAttributeBuffer(0, GL_FLOAT, 0, 2, static_cast<int>(7 * sizeof(GLfloat)));
-
-	program_->enableAttributeArray(1);
-	program_->setAttributeBuffer(1, GL_FLOAT, static_cast<int>(2 * sizeof(GLfloat)), 3,
-								 static_cast<int>(7 * sizeof(GLfloat)));
-
-	program_->enableAttributeArray(2);
-	program_->setAttributeBuffer(2, GL_FLOAT, static_cast<int>(5 * sizeof(GLfloat)), 2,
-								 static_cast<int>(7 * sizeof(GLfloat)));
+  program_->bind();
+	// Bind model
+  setAllBuffers();
+  bindModel();
 
 	mvpUniform_ = program_->uniformLocation("mvp");
 
 	// Release all
 	program_->release();
 
-	vao_.release();
-
-	ibo_.release();
-	vbo_.release();
-
 	// Еnable depth test and face culling
 	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
+	// glEnable(GL_CULL_FACE);
 
 	// Clear all FBO buffers
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -142,27 +258,27 @@ void Window::onRender()
 
 	// Calculate MVP matrix
 	model_.setToIdentity();
-	model_.translate(0, 0, -2);
+	// model_.translate(0, 0, -2);
 	view_.setToIdentity();
+  view_.translate(0, -0.3, -2);
+
 	const auto mvp = projection_ * view_ * model_;
 
 	// Bind VAO and shader program
 	program_->bind();
-	vao_.bind();
 
 	// Update uniform value
 	program_->setUniformValue(mvpUniform_, mvp);
 
 	// Activate texture unit and bind texture
-	glActiveTexture(GL_TEXTURE0);
-	texture_->bind();
 
 	// Draw
-	glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, nullptr);
-
+  // drawModel();
+ for (auto& model : todraw) {
+      model.draw();
+  }
 	// Release VAO and shader program
-	texture_->release();
-	vao_.release();
+	
 	program_->release();
 
 	++frameCount_;
@@ -214,4 +330,39 @@ auto Window::captureMetrics() -> PerfomanceMetricsGuard
 			}
 		}
 	};
+}
+
+void TODRAW::draw() {
+  static QOpenGLFunctions funcs;
+  static bool inited = false;
+  if (!inited) {
+     funcs.initializeOpenGLFunctions();
+     inited = true;
+  }
+ 
+  vao->bind();
+  funcs.glActiveTexture(GL_TEXTURE0);
+  texture->bind();
+
+  #define BUFFER_OFFSET(i) ((char *)NULL + (i))
+  if (ebo) {
+    funcs.glDrawElements(
+      primitiveMode, 
+      indexAccessorCount,
+      indexAccessorComponentType,
+      BUFFER_OFFSET(indexAccessorByteOffset));
+  } else {
+    funcs.glDrawArrays(
+      primitiveMode,
+      0,
+      indexAccessorCount);
+    }
+  #undef BUFFER_OFFSET
+
+  texture->release();
+  vao->release();
+}
+
+void Window::keyReleaseEvent(QKeyEvent *event) {
+
 }
