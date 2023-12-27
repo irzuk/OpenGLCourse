@@ -218,7 +218,7 @@ Window::~Window()
 
 void Window::onInit()
 {
-  const std::filesystem::path path = std::filesystem::absolute("../src/App/Models/chess2.glb").lexically_normal();
+  const std::filesystem::path path = std::filesystem::absolute("../src/App/Models/aaa.glb").lexically_normal();
 	if (!loadModel(path.string().c_str())) return;
    
 	// Configure shaders
@@ -260,7 +260,7 @@ void Window::onRender()
 	model_.setToIdentity();
 	// model_.translate(0, 0, -2);
 	view_.setToIdentity();
-  view_.translate(0, -0.3, -2);
+  view_.translate(0, -2, -7);
 
 	const auto mvp = projection_ * view_ * model_;
 
