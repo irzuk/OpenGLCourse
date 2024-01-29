@@ -1,4 +1,5 @@
 #include "Window.h"
+#include "Camera.h"
 
 #include <QMouseEvent>
 #include <QLabel>
@@ -188,23 +189,29 @@ bool Window::loadModel(const char *filename) {
 
 Window::Window() noexcept
 {
-	const auto formatFPS = [](const auto value) {
-		return QString("FPS: %1").arg(QString::number(value));
+	const auto formatFPS = [](const auto value, const auto morphing) {
+		return QString("FPS: %1, morphing: %2").arg(QString::number(value), QString::number(morphing));
 	};
 
-	auto fps = new QLabel(formatFPS(0), this);
+  morphingSlider.setRange(0, 100);
+	morphingSlider.setValue(0);
+
+	auto fps = new QLabel(formatFPS(0, 1), this);
 	fps->setStyleSheet("QLabel { color : white; }");
 
 	auto layout = new QVBoxLayout();
 	layout->addWidget(fps, 1);
+  layout->addWidget(&morphingSlider);
 
 	setLayout(layout);
 
 	timer_.start();
 
 	connect(this, &Window::updateUI, [=] {
-		fps->setText(formatFPS(ui_.fps));
+		fps->setText(formatFPS(ui_.fps, morphingSlider.value()));
 	});
+  connect(&morphingSlider, SIGNAL(valueChanged(int)), &morphingSlider, SLOT(setValue(int)));
+    
 }
 
 Window::~Window()
@@ -218,7 +225,9 @@ Window::~Window()
 
 void Window::onInit()
 {
-  const std::filesystem::path path = std::filesystem::absolute("../src/App/Models/aaa.glb").lexically_normal();
+  // "../src/App/Models/aaa.glb"
+  const std::filesystem::path path = std::filesystem::absolute("../src/App/Models/monk.glb").lexically_normal();
+  // const std::filesystem::path path = std::filesystem::absolute("src/App/Models/monk.glb").lexically_normal();
 	if (!loadModel(path.string().c_str())) return;
    
 	// Configure shaders
@@ -236,8 +245,14 @@ void Window::onInit()
   setAllBuffers();
   bindModel();
 
-	mvpUniform_ = program_->uniformLocation("mvp");
-
+	mUniform_ = program_->uniformLocation("model");
+  vUniform_ = program_->uniformLocation("view");
+  pUniform_ = program_->uniformLocation("projection");
+  
+  morphingUniform_ = program_->uniformLocation("morphing");
+  lightColorUniform_ = program_->uniformLocation("lightColor");
+  lightPosUniform_ = program_->uniformLocation("lightPos");
+  viewPosUniform_ = program_->uniformLocation("viewPos");
 	// Release all
 	program_->release();
 
@@ -258,18 +273,26 @@ void Window::onRender()
 
 	// Calculate MVP matrix
 	model_.setToIdentity();
-	// model_.translate(0, 0, -2);
-	view_.setToIdentity();
+  //
+  view_.setToIdentity();
   view_.translate(0, -2, -7);
 
-	const auto mvp = projection_ * view_ * model_;
+	//const auto mvp = projection_ * view_ * model_;
 
 	// Bind VAO and shader program
 	program_->bind();
 
 	// Update uniform value
-	program_->setUniformValue(mvpUniform_, mvp);
+	program_->setUniformValue(mUniform_, model_);
+  program_->setUniformValue(vUniform_, cam.getView());
+  program_->setUniformValue(pUniform_, projection_);
+  program_->setUniformValue(lightColorUniform_, QVector3D(1., 0.8, 1.));
+  program_->setUniformValue(lightPosUniform_, QVector3D(5., 5., 5.));
+  program_->setUniformValue(viewPosUniform_, cam.getPos());
 
+
+  morphing_.setX((double)morphingSlider.value() / 100);
+	program_->setUniformValue(morphingUniform_, morphing_);
 	// Activate texture unit and bind texture
 
 	// Draw
@@ -364,5 +387,28 @@ void TODRAW::draw() {
 }
 
 void Window::keyReleaseEvent(QKeyEvent *event) {
-
+   if(event->key() == Qt::Key_E)
+    {
+        cam.moveForward();
+    }
+    if(event->key() == Qt::Key_F)
+    {
+        cam.moveBackward();
+    }
+    if(event->key() == Qt::Key_W)
+    {
+        cam.moveUp();
+    }
+     if(event->key() == Qt::Key_S)
+    {
+        cam.moveDown();
+    }
+     if(event->key() == Qt::Key_A)
+    {
+        cam.moveLeft();
+    }
+     if(event->key() == Qt::Key_D)
+    {
+        cam.moveRight();
+    }
 }

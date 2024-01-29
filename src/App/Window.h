@@ -1,4 +1,5 @@
 #pragma once
+#include "Camera.h"
 
 #include <Base/GLWidget.hpp>
 
@@ -8,6 +9,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLTexture>
 #include <QOpenGLVertexArrayObject>
+#include <QSlider>
 
 #include <functional>
 #include <memory>
@@ -111,7 +113,18 @@ signals:
 	void updateUI();
 
 private:
-	GLint mvpUniform_ = -1;
+    my::Camera cam;
+	GLint mUniform_ = -1;
+	GLint vUniform_ = -1;
+	GLint pUniform_ = -1;
+	GLint lightColorUniform_ = -1;
+	GLint lightPosUniform_ = -1;
+	GLint viewPosUniform_ = -1;
+	// GLint vUniform_ = -1;
+	// GLint pUniform_ = -1;
+	GLint morphingUniform_ = -1;
+	QVector3D morphing_{1., 0., 0.}; 
+	QSlider morphingSlider = QSlider(Qt::Horizontal);
 
     std::vector<TODRAW> todraw;
 
